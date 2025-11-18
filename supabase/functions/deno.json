@@ -1,0 +1,13 @@
+{
+  "imports": {
+    "https://deno.land/": "https://deno.land/",
+    "https://esm.sh/": "https://esm.sh/"
+  },
+  "tasks": {
+    "test": "deno test --allow-all",
+    "start": "deno run --allow-all --allow-net --allow-env generate-token/index.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window"]
+  }
+}

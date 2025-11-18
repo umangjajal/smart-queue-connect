@@ -1,0 +1,4 @@
+project_id = "kknkrgwfzendfupsmahv"
+
+[functions.generate-token]
+verify_jwt = true
