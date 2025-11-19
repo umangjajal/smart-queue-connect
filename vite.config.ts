@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       // adjust host/port if needed
-      port: 5173,
+      port: 8080,
     },
     // you can add build/custom config here
   };
