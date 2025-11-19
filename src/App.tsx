@@ -16,6 +16,7 @@ import ShopkeeperDashboard from "./pages/ShopkeeperDashboard";
 import ShopkeeperAuth from "./pages/ShopkeeperAuth";
 import ShopCreate from "./pages/ShopCreate";
 import QRScanner from "./pages/QRScanner";
+import AdminDashboard from "./pages/AdminDashboard";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +39,9 @@ const App = () => (
           <Route path="/shopkeeper/create" element={<ShopCreate />} />
           {/* Customer pages */}
           <Route path="/my-tokens" element={<MyTokens />} />
+
+          {/* Admin pages */}
+          <Route path="/admin/dashboard" element={<AdminDashboard />} />
 
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
