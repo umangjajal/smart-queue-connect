@@ -196,25 +196,6 @@ export type Database = {
         }
         Returns: boolean
       }
-      insert_shop_with_payout: {
-        Args: {
-          owner_id: string
-          name: string
-          description: string | null
-          category: string
-          location_lat: number
-          location_lng: number
-          address: string
-          payout_method?: string
-          owner_full_name?: string | null
-          phone?: string | null
-          bank_account?: string | null
-          account_holder_name?: string | null
-          ifsc?: string | null
-          upi_id?: string | null
-        }
-        Returns: Database["public"]["Tables"]["shops"]["Row"]
-      }
     }
     Enums: {
       app_role: "customer" | "shopkeeper" | "admin"
