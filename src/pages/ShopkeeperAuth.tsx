@@ -1,166 +1,242 @@
-// src/pages/ShopkeeperAuth.tsx
-import React, { useEffect, useState } from "react";
-import Header from "@/components/Header";
-import { supabase } from "@/integrations/supabase/client";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2 } from "lucide-react";
 
-const ShopkeeperAuth: React.FC = () => {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
+export default function ShopkeeperAuth() {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const uid = sessionData?.session?.user?.id ?? null;
-      const { data: userData } = await supabase.auth.getUser();
-      const maybeUser = (userData as any)?.data?.user ?? (userData as any)?.user ?? null;
-      if (mounted) setUser(maybeUser);
-    })();
-    return () => { mounted = false; };
+    const checkSession = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const session = (data as any)?.session ?? null;
+        if (session) {
+          await checkUserRoleAndNavigate(session.user.id);
+        }
+      } catch (err) {
+        console.error("Error checking session:", err);
+      }
+    };
+
+    checkSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        checkUserRoleAndNavigate(session.user.id).catch((e) => console.error(e));
+      }
+    });
+
+    return () => {
+      try {
+        authListener?.subscription?.unsubscribe?.();
+      } catch (err) {
+        // cleanup
+      }
+    };
   }, []);
 
-  const toggleMode = () => {
-    setMode((m) => (m === "signin" ? "signup" : "signin"));
-    setError(null);
-    setMessage(null);
+  const checkUserRoleAndNavigate = async (userId: string) => {
+    try {
+      const { data: rolesData, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId);
+
+      if (error) {
+        console.error("Error fetching roles:", error);
+        navigate("/browse");
+        return;
+      }
+
+      const roles = Array.isArray(rolesData) ? rolesData.map((r: any) => r.role) : [];
+      if (roles.includes("shopkeeper") || roles.includes("admin")) {
+        // Check if shopkeeper has a shop
+        const { data: shops } = await supabase
+          .from("shops")
+          .select("id")
+          .eq("owner_id", userId)
+          .limit(1);
+
+        if (shops && shops.length > 0) {
+          navigate("/shopkeeper/dashboard");
+        } else {
+          navigate("/shopkeeper/create");
+        }
+      } else {
+        navigate("/browse");
+      }
+    } catch (err) {
+      console.error("checkUserRoleAndNavigate error:", err);
+      navigate("/browse");
+    }
   };
 
-  const resendVerification = async () => {
+  const handleSendOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
-    setError(null);
+
     try {
-      const { error: resendErr } = await supabase.auth.signInWithOtp({ email });
-      if (resendErr) throw resendErr;
-      setMessage("Verification email resent. Check your inbox (and spam).");
-    } catch (err: any) {
-      setError(err.message ?? "Failed to resend verification");
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: `${window.location.origin}/shopkeeper/dashboard`,
+        },
+      });
+
+      if (error) throw error;
+
+      setOtpSent(true);
+      toast({
+        title: "Success",
+        description: "OTP sent to your email! Check your inbox.",
+      });
+    } catch (error: any) {
+      console.error("OTP send error:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send OTP",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleVerifyOTP = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setMessage(null);
     setLoading(true);
 
     try {
-      if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { data: { full_name: "" } },
-        });
-        if (error) throw error;
-        setMessage("Account created. A verification email was sent — confirm your email to continue.");
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: otp,
+        type: "email",
+      });
 
-        // get latest user info
-        const { data: userData } = await supabase.auth.getUser();
-        const currentUser = (userData as any)?.data?.user ?? (userData as any)?.user ?? null;
-        setUser(currentUser);
+      if (error) throw error;
 
-        const uid = (data as any)?.session?.user?.id ?? currentUser?.id ?? null;
-        if (uid) {
-          const { data: shops } = await (supabase as any).from("shops").select("id").eq("owner_id", uid).limit(1);
-          const isConfirmed = currentUser?.email_confirmed_at ?? null;
+      const user = (data as any).user;
+      if (user) {
+        const { data: rolesData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", user.id);
 
-          if (isConfirmed) {
-            if (shops?.length) navigate("/shopkeeper/dashboard");
-            else navigate("/shopkeeper/create");
-          } else {
-            setMessage("Email not verified. Please check your inbox. You cannot create a shop until you verify your email.");
-          }
-        } else {
-          navigate("/shopkeeper/dashboard");
+        if (!rolesData || rolesData.length === 0) {
+          await supabase.from("user_roles").insert({
+            user_id: user.id,
+            role: "shopkeeper",
+          });
         }
+
+        toast({
+          title: "Success",
+          description: "Logged in successfully!",
+        });
+
+        await checkUserRoleAndNavigate(user.id);
       }
-    } catch (err: any) {
-      setError(err.message ?? "Auth error");
+    } catch (error: any) {
+      console.error("OTP verification error:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Invalid OTP",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-surface">
-      <Header />
-      <div className="max-w-md mx-auto py-16 px-4">
-        <div className="bg-card p-8 rounded-xl shadow">
-          <h2 className="text-2xl font-bold mb-2">{mode === "signin" ? "Shopkeeper Sign In" : "Create Shopkeeper Account"}</h2>
-          <p className="text-sm text-muted-foreground mb-6">
-            {mode === "signin" ? "Access your shop dashboard" : "Create an account to manage your shop"}
-          </p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-subtle p-4">
+      <Card className="w-full max-w-md shadow-elevated">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-3xl font-bold text-center">Shopkeeper Login</CardTitle>
+          <CardDescription className="text-center">
+            Login with Email OTP Verification
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!otpSent ? (
+            <form onSubmit={handleSendOTP} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Send OTP
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={handleVerifyOTP} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="otp">Enter OTP</Label>
+                <Input
+                  id="otp"
+                  type="text"
+                  placeholder="123456"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  required
+                  maxLength={6}
+                />
+                <p className="text-xs text-muted-foreground">
+                  OTP sent to {email}
+                </p>
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Verify OTP
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setOtpSent(false);
+                  setOtp("");
+                }}
+              >
+                Change Email
+              </Button>
+            </form>
+          )}
 
-          {message && <div className="text-sm text-foreground mb-4">{message}</div>}
-          {error && <div className="text-sm text-destructive mb-4">{error}</div>}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Email</label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full input"
-                placeholder="you@business.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Password</label>
-              <input
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full input"
-                placeholder="Choose a strong password"
-              />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button type="submit" className="btn btn-primary" disabled={loading}>
-                {loading ? "Please wait..." : mode === "signin" ? "Sign in" : "Create account"}
-              </button>
-
-              {mode === "signin" ? (
-                <button type="button" className="btn btn-ghost" onClick={toggleMode} disabled={loading}>
-                  Create account
-                </button>
-              ) : (
-                <button type="button" className="btn btn-ghost" onClick={toggleMode} disabled={loading}>
-                  Sign in instead
-                </button>
-              )}
-            </div>
-          </form>
-
-          <div className="mt-4 text-sm text-muted-foreground">
-            If you signed up, check your email (including spam) and verify. After email verification, sign in and create your shop.
+          <div className="mt-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              Are you a customer?{" "}
+              <Button
+                variant="link"
+                className="p-0 h-auto"
+                onClick={() => navigate("/auth")}
+              >
+                Login here
+              </Button>
+            </p>
           </div>
-
-          <div className="mt-4 flex gap-2">
-            <button className="btn btn-outline" onClick={resendVerification} disabled={loading || !email}>
-              Resend verification email
-            </button>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
-};
-
-export default ShopkeeperAuth;
+}
